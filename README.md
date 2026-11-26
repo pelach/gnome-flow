@@ -8,11 +8,12 @@ GNOME Flow lets you build event-driven automation rules (*When → Then*) for yo
 
 ## Features
 
-- **Visual Rule Editor (GTK4 / Libadwaita):** Create, toggle, test, and manage automation rules without editing config files by hand.
-- **Modular Plugin Architecture:** Drop-in Python triggers and actions under `gnome_flow/plugins/`.
-- **Background Daemon (`systemd --user`):** Listens to D-Bus, GSettings, and system events with minimal memory footprint (~15 MB).
+- **Visual Rule Editor (GTK4 / Libadwaita):** Create, toggle, test, and manage automation rules with `AND` / `OR` trigger logic and validity time scopes.
+- **Rich Built-in Triggers & Actions:** Combine global hotkeys, schedules, filesystem watchers, hardware/D-Bus events, flow chaining, delays, and desktop controls out of the box.
+- **Modular Plugin Architecture:** Extend functionality with drop-in Python triggers and actions under `gnome_flow/plugins/`.
+- **Background Daemon (`systemd --user`):** Listens to D-Bus, GIO, GSettings, and system events with minimal memory footprint (~15 MB).
 - **Native Wayland Clipboard Support:** Includes a lightweight companion GNOME Shell extension (`gnome-flow-bridge@pelach.github.com`) that exposes Wayland clipboard changes over session D-Bus without polling or focus restrictions.
-- **CLI Control:** Trigger rules manually from scripts, terminal aliases, or custom keyboard shortcuts (`flow <rule-name>`).
+- **CLI Control:** Trigger rules manually from scripts, terminal aliases, or custom shortcuts (`flow <rule-name>`).
 
 ---
 
@@ -20,13 +21,20 @@ GNOME Flow lets you build event-driven automation rules (*When → Then*) for yo
 
 | Category | Triggers (*When*) | Actions (*Then*) |
 | :--- | :--- | :--- |
-| **System & Apps** | Interval timer, Idle timeout | Launch application, Run command, Send desktop notification |
-| **Audio** | — | Set volume level, Toggle mute (PipeWire / `wpctl`) |
-| **Display & Theme** | Color scheme changed (Light / Dark) | Toggle Dark/Light theme, Toggle Night Light, Set wallpaper, Toggle Do Not Disturb |
-| **Bluetooth** | Device connected / disconnected | Connect / disconnect Bluetooth device |
+| **Keyboard Shortcut** | Global keyboard shortcut capture (Ctrl / Alt / Super / Shift + key) | — |
+| **Schedule & Time** | Specific time / schedule, Interval timer | — |
+| **Wait / Delay** | — | Pause execution for a configurable delay between actions |
+| **Files & Folders** | File or directory created, modified, or deleted (GIO monitor) | Create, copy, move, delete files/folders |
+| **Applications** | — | Launch any installed desktop application (`.desktop` search) |
+| **System & Notify** | — | Run shell command, Send desktop notification |
+| **Other Flows** | Triggered by another flow | Chain / execute another automation flow |
+| **Hardware & D-Bus** | Custom D-Bus signal or hardware event | — |
+| **Bluetooth** | Bluetooth device connected / disconnected | Connect / disconnect Bluetooth device |
 | **Power** | AC charging / Battery discharging | — |
-| **Network** | Wi-Fi state changed | Toggle Wi-Fi |
-| **Clipboard** | Text copied (with optional Regex filter) | Strip tracking params (`utm_*`, `fbclid`, etc.) from URLs, Clear clipboard |
+| **Display** | Color scheme changed (Light / Dark) | Toggle Dark/Light theme, Toggle Night Light, Set wallpaper, Toggle Do Not Disturb |
+| **Audio** | — | Set volume level, Toggle mute (PipeWire / `wpctl`) |
+| **Clipboard** | Text copied on Wayland (with optional Regex filter) | Strip tracking params (`utm_*`, `fbclid`, etc.) from URLs, Clear clipboard |
+| **User Idle** | Session idle timeout | — |
 
 ---
 
