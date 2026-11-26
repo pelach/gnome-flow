@@ -1,0 +1,7 @@
+{
+  "uuid": "gnome-flow-bridge@pelach.github.com",
+  "name": "GNOME Flow Shell Bridge",
+  "description": "Exposes Wayland clipboard changes over session D-Bus for GNOME Flow.",
+  "shell-version": ["48", "49", "50", "51"],
+  "version": 1
+}

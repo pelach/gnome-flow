@@ -1,7 +1,9 @@
 from gi.repository import Gio, GLib
 
 MODE = "trigger"
-CATEGORY = "system"
+CATEGORY = "user_idle"
+CATEGORY_TITLE = "User Idle"
+CATEGORY_ICON = "preferences-desktop-screensaver-symbolic"
 TYPE = "user_idle"
 LABEL = "User Idle"
 DESCRIPTION = "Triggers after the keyboard and mouse have been inactive for the given seconds."

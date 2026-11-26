@@ -97,7 +97,6 @@ class FlowEditorPage(Adw.NavigationPage):
         save_group = Adw.PreferencesGroup()
         save_btn = Gtk.Button(label="Save Automation")
         save_btn.add_css_class("suggested-action")
-        save_btn.add_css_class("pill")
         save_btn.connect("clicked", self._on_save)
         save_group.add(save_btn)
         page.add(save_group)

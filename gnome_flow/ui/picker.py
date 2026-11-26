@@ -21,6 +21,7 @@ class BlockPickerDialog(Adw.Window):
         self.on_selected = on_selected
         self.edit_block = edit_block
         self._category_pages: dict[str, Gtk.Widget] = {}
+        self._recent_created_files: dict[str, float] = {}
 
         if edit_block:
             titles = {
@@ -140,14 +141,14 @@ class BlockPickerDialog(Adw.Window):
 
     def _mount_plugin(self, plugin):
         """A plug-in SCHEMA leírásából automatikusan felépíti a Libadwaita űrlapot."""
-        cat_key = getattr(plugin, "CATEGORY", "plugins")
-        cat_title = getattr(plugin, "CATEGORY_TITLE", "Plugins")
-        cat_icon = getattr(plugin, "CATEGORY_ICON", "application-x-addon-symbolic")
-
         block_type = getattr(plugin, "TYPE")
         label = getattr(plugin, "LABEL", block_type)
         desc = getattr(plugin, "DESCRIPTION", "")
         schema = getattr(plugin, "SCHEMA", [])
+
+        cat_key = getattr(plugin, "CATEGORY", block_type)
+        cat_title = getattr(plugin, "CATEGORY_TITLE", label)
+        cat_icon = getattr(plugin, "CATEGORY_ICON", "preferences-system-symbolic")
 
         ep = self._edit_params(block_type)
 
@@ -211,7 +212,6 @@ class BlockPickerDialog(Adw.Window):
         btn_text = "Save Changes" if ep else f"Add {label}"
         add_btn = Gtk.Button(label=btn_text, margin_top=12)
         add_btn.add_css_class("suggested-action")
-        add_btn.add_css_class("pill")
 
         def on_submit(_):
             params = {k: fn() for k, fn in readers.items()}
@@ -286,7 +286,6 @@ class BlockPickerDialog(Adw.Window):
             key_entry.set_text(accel.split(">")[-1] or "F1")
 
         capture_btn = Gtk.Button(label="Press Key to Capture...", margin_top=12)
-        capture_btn.add_css_class("pill")
 
         key_ctrl = Gtk.EventControllerKey()
         def on_key_pressed(ctrl, keyval, keycode, state):
@@ -309,7 +308,6 @@ class BlockPickerDialog(Adw.Window):
             margin_top=16,
         )
         add_btn.add_css_class("suggested-action")
-        add_btn.add_css_class("pill")
 
         def on_add(_):
             mods = ""
@@ -400,7 +398,6 @@ class BlockPickerDialog(Adw.Window):
             margin_top=16,
         )
         add_btn.add_css_class("suggested-action")
-        add_btn.add_css_class("pill")
 
         def _on_add(_):
             h = int(hour_spin.get_value())
@@ -462,45 +459,93 @@ class BlockPickerDialog(Adw.Window):
     def _build_file_trigger(self) -> Gtk.Widget:
         page, group = self._wrap_page(
             "Folder &amp; File Watcher (GIO)",
-            "Watches a directory for newly created or modified files. Passes file path as {context}.",
+            "Watches a directory for specific file events. Passes the affected path as {context}.",
         )
 
         ep = self._edit_params("dir_changed")
-        path_entry = Adw.EntryRow(title="Folder Path")
-        if ep and ep.get("path"):
-            path_entry.set_text(ep["path"])
-        else:
-            path_entry.set_text(str(Gio.File.new_for_path("~").get_path()))
-        group.add(path_entry)
+        default_dir = ep.get("path") if (ep and ep.get("path")) else str(Gio.File.new_for_path("~").get_path())
+        saved_events = ep.get("events", ["added"]) if ep else ["added"]
 
-        browse_btn = Gtk.Button(label="Choose Folder...", margin_top=8)
+        # 1. Felső sáv: Mappa útvonala + "Change Folder..." gomb a jobb oldalon (mint a képen)
+        folder_row = Adw.ActionRow(
+            title=Gio.File.new_for_path(default_dir).get_basename() or default_dir,
+            subtitle=default_dir,
+        )
+        folder_row._selected_path = default_dir
+
+        change_btn = Gtk.Button(label="Change Folder...", valign=Gtk.Align.CENTER)
         def on_browse(_):
             dialog = Gtk.FileDialog(title="Select Folder to Watch")
-            dialog.select_folder(self, None, lambda d, res: self._on_folder_chosen(d, res, path_entry))
-        browse_btn.connect("clicked", on_browse)
-        group.add(browse_btn)
+            dialog.select_folder(self, None, lambda d, res: self._on_folder_chosen(d, res, folder_row))
+        change_btn.connect("clicked", on_browse)
+        folder_row.add_suffix(change_btn)
+        group.add(folder_row)
+
+        # 2. "When Any Item Is" szekció: Added / Modified / Removed jelölőnégyzetek
+        events_group = Adw.PreferencesGroup(title="When Any Item Is")
+        page.add(events_group)
+
+        def make_check_row(title: str, active: bool) -> tuple[Adw.ActionRow, Gtk.CheckButton]:
+            row = Adw.ActionRow(title=title)
+            chk = Gtk.CheckButton(active=active, valign=Gtk.Align.CENTER)
+            row.add_prefix(chk)
+            row.set_activatable_widget(chk)
+            events_group.add(row)
+            return row, chk
+
+        _, added_chk = make_check_row("Added", "added" in saved_events)
+        _, modified_chk = make_check_row("Modified", "modified" in saved_events)
+        _, removed_chk = make_check_row("Removed", "removed" in saved_events)
+
+        # 3. Mentés / Hozzáadás gomb
+        action_group = Adw.PreferencesGroup()
+        page.add(action_group)
 
         add_btn = Gtk.Button(
             label="Save Changes" if ep else "Add Folder Watcher",
-            margin_top=16,
+            margin_top=8,
         )
         add_btn.add_css_class("suggested-action")
         add_btn.add_css_class("pill")
-        add_btn.connect("clicked", lambda _: self._finish(Block(
-            category="file",
-            type="dir_changed",
-            label="Folder Changed",
-            subtitle=path_entry.get_text().strip(),
-            params={"path": path_entry.get_text().strip()},
-        )))
-        group.add(add_btn)
+
+        def on_submit(_):
+            events = []
+            labels = []
+            if added_chk.get_active():
+                events.append("added")
+                labels.append("Added")
+            if modified_chk.get_active():
+                events.append("modified")
+                labels.append("Modified")
+            if removed_chk.get_active():
+                events.append("removed")
+                labels.append("Removed")
+
+            if not events:
+                return  # Legalább egy esemény legyen kijelölve
+
+            path = folder_row._selected_path
+            events_text = ", ".join(labels)
+            self._finish(Block(
+                category="file",
+                type="dir_changed",
+                label=f"Folder Item {events_text}",
+                subtitle=path,
+                params={"path": path, "events": events},
+            ))
+
+        add_btn.connect("clicked", on_submit)
+        action_group.add(add_btn)
         return page
 
-    def _on_folder_chosen(self, dialog, result, entry_row):
+    def _on_folder_chosen(self, dialog, result, folder_row):
         try:
             folder = dialog.select_folder_finish(result)
             if folder:
-                entry_row.set_text(folder.get_path())
+                path = folder.get_path()
+                folder_row._selected_path = path
+                folder_row.set_title(folder.get_basename() or path)
+                folder_row.set_subtitle(path)
         except Exception:
             pass
 
@@ -606,7 +651,6 @@ class BlockPickerDialog(Adw.Window):
             margin_top=16,
         )
         add_btn.add_css_class("suggested-action")
-        add_btn.add_css_class("pill")
         add_btn.connect("clicked", lambda _: self._finish(Block(
             category="file",
             type="open_path",
@@ -640,7 +684,6 @@ class BlockPickerDialog(Adw.Window):
             margin_bottom=16,
         )
         notif_btn.add_css_class("suggested-action")
-        notif_btn.add_css_class("pill")
         notif_btn.connect("clicked", lambda _: self._finish(Block(
             category="system",
             type="notify",
@@ -662,7 +705,6 @@ class BlockPickerDialog(Adw.Window):
         )
         if ep_cmd:
             cmd_btn.add_css_class("suggested-action")
-        cmd_btn.add_css_class("pill")
         cmd_btn.connect("clicked", lambda _: self._finish(Block(
             category="system",
             type="command",
@@ -689,7 +731,6 @@ class BlockPickerDialog(Adw.Window):
             margin_top=16,
         )
         add_btn.add_css_class("suggested-action")
-        add_btn.add_css_class("pill")
         add_btn.connect("clicked", lambda _: self._finish(Block(
             category="time",
             type="delay",
@@ -754,7 +795,6 @@ class BlockPickerDialog(Adw.Window):
             margin_top=16,
         )
         add_btn.add_css_class("suggested-action")
-        add_btn.add_css_class("pill")
         add_btn.connect("clicked", lambda _: self._finish(Block(
             category="app",
             type="app_running",
@@ -781,7 +821,6 @@ class BlockPickerDialog(Adw.Window):
             margin_top=16,
         )
         add_btn.add_css_class("suggested-action")
-        add_btn.add_css_class("pill")
         add_btn.connect("clicked", lambda _: self._finish(Block(
             category="file",
             type="file_exists",
@@ -809,7 +848,6 @@ class BlockPickerDialog(Adw.Window):
             margin_top=16,
         )
         add_btn.add_css_class("suggested-action")
-        add_btn.add_css_class("pill")
         add_btn.connect("clicked", lambda _: self._finish(Block(
             category="system",
             type="dark_mode",

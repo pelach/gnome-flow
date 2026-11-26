@@ -290,9 +290,34 @@ class FlowDaemon:
         return False
 
     def _on_dir_changed(self, monitor, file, other_file, event_type, flow_id, trigger_id):
-        """Akkor fut le, ha egy figyelt mappában új fájl jön létre vagy módosul."""
-        if event_type in (Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.CHANGES_DONE_HINT):
-            filepath = file.get_path() or ""
+        """Akkor fut le, ha egy figyelt mappában a kijelölt fájlesemény (added/modified/removed) történik."""
+        flow = next((f for f in self.flows if f.id == flow_id), None)
+        if not flow or not flow.enabled:
+            return
+        trig = next((t for t in flow.triggers if t.id == trigger_id), None)
+        if not trig:
+            return
+
+        allowed = trig.params.get("events", ["added", "modified"])
+        filepath = file.get_path() or ""
+        now = time.time()
+
+        matched = False
+        if event_type in (Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.MOVED_IN):
+            self._recent_created_files[filepath] = now
+            matched = "added" in allowed
+
+        elif event_type == Gio.FileMonitorEvent.CHANGES_DONE_HINT:
+            # Ha az imént jött létre (< 0.8 mp), az Added már kezelte, nem sütjük el Modified-ként is
+            created_at = self._recent_created_files.get(filepath, 0.0)
+            if (now - created_at) > 0.8:
+                matched = "modified" in allowed
+
+        elif event_type in (Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED_OUT):
+            self._recent_created_files.pop(filepath, None)
+            matched = "removed" in allowed
+
+        if matched:
             self._fire_specific_trigger(flow_id, trigger_id, context=filepath)
 
     def _fire_trigger_type(self, trigger_type: str, context: str = ""):
