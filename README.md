@@ -103,6 +103,13 @@ Create a `.py` file inside `gnome_flow/plugins/` defining `MODE = "trigger"` (wi
 
 ---
 
+## Credits
+
+Developed by [@pelach](https://github.com/pelach) with AI assistance from **Google Gemini**.
+
+
+---
+
 ## License
 
 See [LICENSE](LICENSE) for details.
