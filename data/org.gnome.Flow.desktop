@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=GNOME Flow
+GenericName=Desktop Automation
+Comment=Visual IF-THEN workflow automation for GNOME
+Exec=flow
+Icon=org.gnome.Flow
+Terminal=false
+Categories=Utility;System;GTK;
+Keywords=automation;workflow;macro;shortcut;trigger;routine;
+StartupNotify=true
+StartupWMClass=org.gnome.Flow

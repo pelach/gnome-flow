@@ -6,6 +6,7 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib
 from .model import Flow, Block, load_flows, save_flows
+from .plugins import get_plugin
 
 
 class FlowEngine:
@@ -72,6 +73,15 @@ class FlowEngine:
             scheme = settings.get_string("color-scheme")
             want_dark = p.get("dark", True)
             return (scheme == "prefer-dark") == want_dark
+
+        # Plug-in feltétel kiértékelése
+        plugin = get_plugin(ctype)
+        if plugin and hasattr(plugin, "check"):
+            try:
+                return bool(plugin.check(p))
+            except Exception as e:
+                print(f"[GNOME Flow] Condition plugin '{ctype}' error: {e}")
+                return False
 
         return True
 
@@ -147,6 +157,16 @@ class FlowEngine:
                 save_flows(flows)
                 if self.on_flows_changed:
                     self.on_flows_changed()
+
+        else:
+            # Plug-in művelet futtatása
+            plugin = get_plugin(atype)
+            if plugin and hasattr(plugin, "run"):
+                try:
+                    resolved_params = {k: sub(v) for k, v in p.items()}
+                    plugin.run(resolved_params, context=context)
+                except Exception as e:
+                    print(f"[GNOME Flow] Action plugin '{atype}' error: {e}")
 
     def _trigger_chained_flows(self, finished_flow_id: str, context: str):
         for f in load_flows():

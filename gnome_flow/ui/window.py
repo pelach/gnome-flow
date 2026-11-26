@@ -210,14 +210,18 @@ class FlowEditorPage(Adw.NavigationPage):
             self._refresh_actions()
 
     def _open_trigger_picker(self, _):
-        BlockPickerDialog("trigger", on_selected=self._on_trigger_added).present(self)
+        dlg = BlockPickerDialog("trigger", on_selected=self._on_trigger_added)
+        dlg.set_transient_for(self.get_root())
+        dlg.present()
 
     def _on_trigger_added(self, block: Block):
         self.flow.triggers.append(block)
         self._refresh_triggers()
 
     def _open_action_picker(self, _):
-        BlockPickerDialog("action", on_selected=self._on_action_added).present(self)
+        dlg = BlockPickerDialog("action", on_selected=self._on_action_added)
+        dlg.set_transient_for(self.get_root())
+        dlg.present()
 
     def _on_action_added(self, block: Block):
         self.flow.actions.append(block)
@@ -238,13 +242,19 @@ class FlowEditorPage(Adw.NavigationPage):
             self.flow.triggers[idx] = updated
             self._refresh_triggers()
 
-        BlockPickerDialog("trigger", on_selected=on_updated, edit_block=self.flow.triggers[idx]).present(self)
+        dlg = BlockPickerDialog("trigger", on_selected=on_updated, edit_block=self.flow.triggers[idx])
+        dlg.set_transient_for(self.get_root())
+        dlg.present()
 
     def _edit_action(self, idx: int):
         def on_updated(updated: Block):
             self.flow.actions[idx] = updated
             self._refresh_actions()
 
+        dlg = BlockPickerDialog("action", on_selected=on_updated, edit_block=self.flow.actions[idx])
+        dlg.set_transient_for(self.get_root())
+        dlg.present()
+        
         BlockPickerDialog("action", on_selected=on_updated, edit_block=self.flow.actions[idx]).present(self)
 class MainWindow(Adw.ApplicationWindow):
     """A GNOME Flow főablaka."""

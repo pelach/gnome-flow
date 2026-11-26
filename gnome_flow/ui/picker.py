@@ -1,12 +1,13 @@
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, Gio, Gdk
+from gi.repository import Gtk, Adw, Gio, Gdk, GLib
 
 from ..model import Block, load_flows
+from ..plugins import get_plugins_by_mode
 
 
-class BlockPickerDialog(Adw.Dialog):
+class BlockPickerDialog(Adw.Window):
     """Kétpaneles választóablak: bal oldalon kategóriák, jobb oldalon a konkrét beállítások."""
 
     def __init__(self, mode: str, on_selected, edit_block: Block | None = None):
@@ -19,6 +20,7 @@ class BlockPickerDialog(Adw.Dialog):
         self.mode = mode
         self.on_selected = on_selected
         self.edit_block = edit_block
+        self._category_pages: dict[str, Gtk.Widget] = {}
 
         if edit_block:
             titles = {
@@ -33,8 +35,8 @@ class BlockPickerDialog(Adw.Dialog):
                 "condition": "Add Condition (Valid When)",
             }
         self.set_title(titles.get(mode, "Configure Block"))
-        self.set_content_width(740)
-        self.set_content_height(500)
+        self.set_default_size(760, 560)
+        self.set_modal(True)
 
         # Fő elrendezés: fejléc + kétoszlopos osztott nézet
         toolbar_view = Adw.ToolbarView()
@@ -64,7 +66,7 @@ class BlockPickerDialog(Adw.Dialog):
         split.set_end_child(right_scroll)
 
         toolbar_view.set_content(split)
-        self.set_child(toolbar_view)
+        self.set_content(toolbar_view)
 
         self._populate_categories()
 
@@ -86,6 +88,7 @@ class BlockPickerDialog(Adw.Dialog):
 
         self.cat_list.append(row)
         self.stack.add_named(widget, key)
+        self._category_pages[key] = widget
 
     def _on_category_selected(self, listbox, row):
         if row:
@@ -113,6 +116,10 @@ class BlockPickerDialog(Adw.Dialog):
             self._add_category("system", "System State", "preferences-system-symbolic", self._build_system_condition())
             self._add_category("flow", "Flow State", "media-playlist-repeat-symbolic", self._build_flow_condition())
 
+        # Dinamikus plug-inek regisztrálása a megfelelő kategóriába (vagy új kategóriába)
+        for plugin in get_plugins_by_mode(self.mode):
+            self._mount_plugin(plugin)
+
         # Szerkesztésnél a blokk saját kategóriáját jelöljük ki, különben az elsőt
         target_row = None
         if self.edit_block:
@@ -130,6 +137,107 @@ class BlockPickerDialog(Adw.Dialog):
             target_row = self.cat_list.get_row_at_index(0)
         if target_row:
             self.cat_list.select_row(target_row)
+
+    def _mount_plugin(self, plugin):
+        """A plug-in SCHEMA leírásából automatikusan felépíti a Libadwaita űrlapot."""
+        cat_key = getattr(plugin, "CATEGORY", "plugins")
+        cat_title = getattr(plugin, "CATEGORY_TITLE", "Plugins")
+        cat_icon = getattr(plugin, "CATEGORY_ICON", "application-x-addon-symbolic")
+
+        block_type = getattr(plugin, "TYPE")
+        label = getattr(plugin, "LABEL", block_type)
+        desc = getattr(plugin, "DESCRIPTION", "")
+        schema = getattr(plugin, "SCHEMA", [])
+
+        ep = self._edit_params(block_type)
+
+        group = Adw.PreferencesGroup(
+            title=GLib.markup_escape_text(label, -1),
+            description=GLib.markup_escape_text(desc, -1),
+        )
+
+        readers = {}
+        for field in schema:
+            key = field["key"]
+            ftype = field.get("type", "entry")
+            ftitle = GLib.markup_escape_text(field.get("title", key), -1)
+            default_val = field.get("default")
+            current_val = ep.get(key, default_val) if ep else default_val
+
+            if ftype == "entry":
+                row = Adw.EntryRow(title=ftitle)
+                row.set_text(str(current_val or ""))
+                group.add(row)
+                readers[key] = lambda r=row: r.get_text().strip()
+
+            elif ftype == "int":
+                row = Adw.SpinRow.new_with_range(
+                    float(field.get("min", 0)),
+                    float(field.get("max", 999999)),
+                    float(field.get("step", 1)),
+                )
+                row.set_title(ftitle)
+                row.set_value(float(current_val if current_val is not None else 0))
+                group.add(row)
+                readers[key] = lambda r=row: int(r.get_value())
+
+            elif ftype == "float":
+                row = Adw.SpinRow.new_with_range(
+                    float(field.get("min", 0.0)),
+                    float(field.get("max", 999999.0)),
+                    float(field.get("step", 0.5)),
+                )
+                row.set_title(ftitle)
+                row.set_value(float(current_val if current_val is not None else 0.0))
+                group.add(row)
+                readers[key] = lambda r=row: float(r.get_value())
+
+            elif ftype == "bool":
+                row = Adw.SwitchRow(title=ftitle, active=bool(current_val))
+                group.add(row)
+                readers[key] = lambda r=row: bool(r.get_active())
+
+            elif ftype == "choice":
+                options = field.get("options", [])  # [(val, label), ...]
+                opt_keys = [o[0] for o in options]
+                opt_labels = [o[1] for o in options]
+                row = Adw.ComboRow(title=ftitle)
+                row.set_model(Gtk.StringList.new(opt_labels))
+                if current_val in opt_keys:
+                    row.set_selected(opt_keys.index(current_val))
+                group.add(row)
+                readers[key] = lambda r=row, keys=opt_keys: keys[r.get_selected()] if keys else ""
+
+        btn_text = "Save Changes" if ep else f"Add {label}"
+        add_btn = Gtk.Button(label=btn_text, margin_top=12)
+        add_btn.add_css_class("suggested-action")
+        add_btn.add_css_class("pill")
+
+        def on_submit(_):
+            params = {k: fn() for k, fn in readers.items()}
+            if hasattr(plugin, "format_subtitle"):
+                subtitle = str(plugin.format_subtitle(params))
+            else:
+                subtitle = ", ".join(f"{k}={v}" for k, v in params.items())
+            self._finish(Block(
+                category=cat_key,
+                type=block_type,
+                label=label,
+                subtitle=subtitle,
+                params=params,
+            ))
+
+        add_btn.connect("clicked", on_submit)
+        group.add(add_btn)
+
+        # Ha a kategória már létezik (Adw.PreferencesPage), hozzáfűzzük új szekcióként
+        target_widget = self._category_pages.get(cat_key)
+        if isinstance(target_widget, Adw.PreferencesPage):
+            target_widget.add(group)
+        else:
+            page = Adw.PreferencesPage()
+            page.add(group)
+            self._add_category(cat_key, cat_title, cat_icon, page)
 
     def _edit_params(self, block_type: str) -> dict | None:
         if self.edit_block and self.edit_block.type == block_type:
@@ -368,7 +476,7 @@ class BlockPickerDialog(Adw.Dialog):
         browse_btn = Gtk.Button(label="Choose Folder...", margin_top=8)
         def on_browse(_):
             dialog = Gtk.FileDialog(title="Select Folder to Watch")
-            dialog.select_folder(self.get_root(), None, lambda d, res: self._on_folder_chosen(d, res, path_entry))
+            dialog.select_folder(self, None, lambda d, res: self._on_folder_chosen(d, res, path_entry))
         browse_btn.connect("clicked", on_browse)
         group.add(browse_btn)
 
