@@ -1,7 +1,7 @@
 from gi.repository import Gio
 
 MODE = "action"
-CATEGORY = "system"
+CATEGORY = "display"
 TYPE = "set_color_scheme"
 LABEL = "Set Desktop Theme"
 DESCRIPTION = "Switch GNOME between Light Mode, Dark Mode, or toggle the current theme."

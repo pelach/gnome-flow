@@ -40,34 +40,38 @@ if [ "$1" = "uninstall" ] || [ "$1" = "--uninstall" ]; then
     exit 0
 fi
 
-mkdir -p "$BIN_DIR" "$DESKTOP_DIR" "$ICON_DIR" "$SYSTEMD_DIR" "$EXT_DIR"
+mkdir -p "$BIN_DIR" "$DESKTOP_DIR" "$ICON_DIR" "$SYSTEMD_DIR" "$(dirname "$EXT_DIR")"
 
 # Régi /usr/local/bin/flow figyelmeztetés, ha maradt korábbi tesztből
 if [ -f "/usr/local/bin/flow" ]; then
     echo "Megjegyzés: /usr/local/bin/flow létezik. Ha az előbbre van a PATH-ban, törölheted: sudo rm /usr/local/bin/flow"
 fi
 
-rm -rf "$APP_DIR"
+rm -rf "$APP_DIR" "$EXT_DIR"
 
 if [ "$1" = "--dev" ]; then
-    echo "Fejlesztői mód: szimbolikus link létrehozása ($REPO_DIR -> $APP_DIR)..."
+    echo "Fejlesztői mód: szimbolikus linkek létrehozása..."
     ln -s "$REPO_DIR" "$APP_DIR"
+    if [ -d "$REPO_DIR/data/shell-bridge" ]; then
+        ln -s "$REPO_DIR/data/shell-bridge" "$EXT_DIR"
+    fi
 else
     echo "Alkalmazás fájlok másolása ide: $APP_DIR..."
     mkdir -p "$APP_DIR"
     cp "$REPO_DIR/flow.py" "$APP_DIR/"
     cp -r "$REPO_DIR/gnome_flow" "$APP_DIR/"
     find "$APP_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+    if [ -d "$REPO_DIR/data/shell-bridge" ]; then
+        echo "GNOME Shell híd-kiterjesztés telepítése ($EXT_UUID)..."
+        mkdir -p "$EXT_DIR"
+        cp -f "$REPO_DIR/data/shell-bridge/metadata.json" "$EXT_DIR/"
+        cp -f "$REPO_DIR/data/shell-bridge/extension.js" "$EXT_DIR/"
+    fi
 fi
 
-# GNOME Shell híd-kiterjesztés telepítése és engedélyezése
-if [ -d "$REPO_DIR/data/shell-bridge" ]; then
-    echo "GNOME Shell híd-kiterjesztés telepítése ($EXT_UUID)..."
-    cp -f "$REPO_DIR/data/shell-bridge/metadata.json" "$EXT_DIR/"
-    cp -f "$REPO_DIR/data/shell-bridge/extension.js" "$EXT_DIR/"
-    if command -v gnome-extensions >/dev/null 2>&1; then
-        gnome-extensions enable "$EXT_UUID" 2>/dev/null || true
-    fi
+if [ -d "$REPO_DIR/data/shell-bridge" ] && command -v gnome-extensions >/dev/null 2>&1; then
+    gnome-extensions enable "$EXT_UUID" 2>/dev/null || true
 fi
 
 # Futtatható parancs létrehozása (~/.local/bin/flow)
@@ -97,4 +101,4 @@ echo ""
 echo "GNOME Flow sikeresen telepítve!"
 echo " - Alkalmazásindító: keresd a 'GNOME Flow' ikont a menüben"
 echo " - Háttérszolgáltatás állapota: systemctl --user status gnome-flow-daemon.service"
-echo " - Megjegyzés: első telepítéskor egy kijelentkezés/bejelentkezés szükséges a vágólap-figyelő kiterjesztés aktiválásához."
+echo " - Megjegyzés: a Shell híd (vágólap és ablakkezelés) aktiválásához egy kijelentkezés/bejelentkezés szükséges."

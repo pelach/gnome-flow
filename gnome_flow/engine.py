@@ -95,11 +95,18 @@ class FlowEngine:
             return False
 
         print(f"[GNOME Flow] Running '{flow.name}' (context='{context}')")
+        current_ctx = context
         for action in flow.actions:
-            self._run_action(action, context)
+            res = self._run_action(action, current_ctx)
+            if isinstance(res, dict):
+                if res.get("abort"):
+                    print(f"[GNOME Flow] Aborted '{flow.name}' by action '{action.label}'.")
+                    return False
+                if "context" in res:
+                    current_ctx = str(res["context"])
 
         # Láncolt szabályok értesítése ('flow_finished' trigger)
-        self._trigger_chained_flows(flow.id, context)
+        self._trigger_chained_flows(flow.id, current_ctx)
         return True
 
     def _run_action(self, action: Block, context: str):
@@ -137,15 +144,24 @@ class FlowEngine:
                 subprocess.Popen(cmd, shell=True)
 
         elif atype == "toggle_flow":
-            target_id = p.get("flow_id", "")
-            mode = p.get("state", "enable")  # 'enable', 'disable', 'toggle', 'run'
+            match_ctx = p.get("match_context", "").strip()
+            if match_ctx and context.strip().lower() != match_ctx.lower():
+                return None
+
+            raw_target = sub(p.get("flow_id", "")).strip()
+            target_slug = Flow.make_slug(raw_target)
+            mode = p.get("state", "run")  # 'run', 'enable', 'disable', 'toggle'
             flows = load_flows()
             changed = False
             for f in flows:
-                if f.id == target_id:
+                if (
+                    f.id == raw_target
+                    or f.slug == target_slug
+                    or f.name.lower() == raw_target.lower()
+                ):
                     if mode == "run":
                         self.execute_flow(f, context=context, force=True)
-                        return
+                        return None
                     elif mode == "enable":
                         f.enabled = True
                     elif mode == "disable":
@@ -164,9 +180,10 @@ class FlowEngine:
             if plugin and hasattr(plugin, "run"):
                 try:
                     resolved_params = {k: sub(v) for k, v in p.items()}
-                    plugin.run(resolved_params, context=context)
+                    return plugin.run(resolved_params, context=context)
                 except Exception as e:
                     print(f"[GNOME Flow] Action plugin '{atype}' error: {e}")
+        return None
 
     def _trigger_chained_flows(self, finished_flow_id: str, context: str):
         for f in load_flows():

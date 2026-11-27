@@ -152,7 +152,8 @@ class ValidityScopeDialog(Adw.Dialog):
 
     def _on_add_condition(self, _):
         picker = BlockPickerDialog("condition", on_selected=self._on_condition_picked)
-        picker.present(self)
+        picker.set_transient_for(self.get_root())
+        picker.present()
 
     def _on_condition_picked(self, block: Block):
         self.scope.conditions.append(block)
@@ -172,4 +173,6 @@ class ValidityScopeDialog(Adw.Dialog):
             self.scope.conditions[idx] = updated
             self._refresh_conditions()
 
-        BlockPickerDialog("condition", on_selected=on_updated, edit_block=self.scope.conditions[idx]).present(self)
+        dlg = BlockPickerDialog("condition", on_selected=on_updated, edit_block=self.scope.conditions[idx])
+        dlg.set_transient_for(self.get_root())
+        dlg.present()

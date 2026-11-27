@@ -9,6 +9,7 @@ from ..daemon import BUS_NAME, OBJECT_PATH
 from .picker import BlockPickerDialog
 from .scope import ValidityScopeDialog
 
+import threading
 
 def notify_daemon_reload():
     """Szól a háttérben futó daemonnak D-Bus-on, hogy töltse újra a szabályokat."""
@@ -253,8 +254,7 @@ class FlowEditorPage(Adw.NavigationPage):
         dlg = BlockPickerDialog("action", on_selected=on_updated, edit_block=self.flow.actions[idx])
         dlg.set_transient_for(self.get_root())
         dlg.present()
-        
-        BlockPickerDialog("action", on_selected=on_updated, edit_block=self.flow.actions[idx]).present(self)
+
 class MainWindow(Adw.ApplicationWindow):
     """A GNOME Flow főablaka."""
 
@@ -321,7 +321,7 @@ class MainWindow(Adw.ApplicationWindow):
             # Azonnali futtatás (Play) gomb
             run_btn = Gtk.Button(icon_name="media-playback-start-symbolic", tooltip_text="Run Now", valign=Gtk.Align.CENTER)
             run_btn.add_css_class("flat")
-            run_btn.connect("clicked", lambda _, target=f: self.engine.execute_flow(target, force=True))
+            run_btn.connect("clicked", self._on_play_clicked, f)
             row.add_suffix(run_btn)
 
             # Aktív / Kikapcsolt kapcsoló
@@ -331,6 +331,38 @@ class MainWindow(Adw.ApplicationWindow):
 
             self.list_group.add(row)
             self.flow_rows.append(row)
+
+    def _on_play_clicked(self, _btn, target: Flow):
+        def _fallback_local():
+            threading.Thread(
+                target=self.engine.execute_flow,
+                args=(target,),
+                kwargs={"force": True},
+                daemon=True,
+            ).start()
+
+        def _on_dbus_done(bus, res):
+            try:
+                bus.call_finish(res)
+            except Exception:
+                _fallback_local()
+
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            bus.call(
+                "org.gnome.Flow.Daemon",
+                "/org/gnome/Flow/Daemon",
+                "org.gnome.Flow.Daemon",
+                "RunFlow",
+                GLib.Variant("(ss)", (target.slug, "")),
+                GLib.VariantType("(b)"),
+                Gio.DBusCallFlags.NONE,
+                2000,
+                None,
+                _on_dbus_done,
+            )
+        except Exception:
+            _fallback_local()
 
     def _on_toggle_enabled(self, flow: Flow, state: bool):
         flows = load_flows()
