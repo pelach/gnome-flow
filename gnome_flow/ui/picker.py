@@ -65,7 +65,7 @@ class BlockPickerDialog(Adw.Window):
             else {"trigger": "Add Trigger (When)", "action": "Add Action (Then)", "condition": "Add Condition (Valid When)"}
         )
         self.set_title(titles.get(mode, "Configure Block"))
-        self.set_default_size(760, 560)
+        self.set_default_size(850, 650)
         self.set_modal(True)
 
         toolbar_view = Adw.ToolbarView()
