@@ -48,6 +48,26 @@ class Flow:
         clean = "".join(c for c in name.translate(tr).lower() if c.isalnum() or c == "-")
         return clean.strip("-") or "flow"
 
+    @classmethod
+    def make_unique_name(
+        cls,
+        base_name: str,
+        existing_flows: List["Flow"],
+        ignore_id: str | None = None,
+    ) -> str:
+        taken_slugs = {
+            f.slug for f in existing_flows if f.id != ignore_id
+        }
+        if cls.make_slug(base_name) not in taken_slugs:
+            return base_name
+
+        counter = 2
+        while True:
+            candidate = f"{base_name} {counter}"
+            if cls.make_slug(candidate) not in taken_slugs:
+                return candidate
+            counter += 1
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -86,6 +106,12 @@ def load_flows() -> List[Flow]:
 
 
 def save_flows(flows: List[Flow]) -> None:
+    seen_slugs: set[str] = set()
+    for f in flows:
+        if f.slug in seen_slugs:
+            raise ValueError(f"Duplicate flow CLI slug: '{f.slug}'")
+        seen_slugs.add(f.slug)
+
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     data = [f.to_dict() for f in flows]
     FLOWS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

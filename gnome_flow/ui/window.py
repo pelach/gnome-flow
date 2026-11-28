@@ -96,10 +96,10 @@ class FlowEditorPage(Adw.NavigationPage):
 
         # 4. Mentés gomb alul
         save_group = Adw.PreferencesGroup()
-        save_btn = Gtk.Button(label="Save Automation")
-        save_btn.add_css_class("suggested-action")
-        save_btn.connect("clicked", self._on_save)
-        save_group.add(save_btn)
+        self.save_btn = Gtk.Button(label="Save Automation")
+        self.save_btn.add_css_class("suggested-action")
+        self.save_btn.connect("clicked", self._on_save)
+        save_group.add(self.save_btn)
         page.add(save_group)
 
         toolbar.set_content(page)
@@ -108,6 +108,7 @@ class FlowEditorPage(Adw.NavigationPage):
         self._refresh_triggers()
         self._refresh_actions()
         self._update_scope_summary()
+        self._validate_name()
 
     def _on_name_changed(self, entry):
         name = entry.get_text().strip() or "New Flow"
@@ -231,7 +232,9 @@ class FlowEditorPage(Adw.NavigationPage):
         ValidityScopeDialog(self.flow.scope, on_saved=lambda _: self._update_scope_summary()).present(self)
 
     def _on_save(self, _):
-        name = self.name_entry.get_text().strip() or "New Flow"
+        if not self._validate_name():
+            return
+        name = self.name_entry.get_text().strip()
         self.flow.name = name
         self.flow.slug = Flow.make_slug(name)
         self.flow.trigger_mode = "all" if self.trig_mode_row.get_selected() == 1 else "any"
@@ -254,6 +257,35 @@ class FlowEditorPage(Adw.NavigationPage):
         dlg = BlockPickerDialog("action", on_selected=on_updated, edit_block=self.flow.actions[idx])
         dlg.set_transient_for(self.get_root())
         dlg.present()
+
+    def _validate_name(self) -> bool:
+        raw_name = self.name_entry.get_text().strip()
+        if not raw_name:
+            self.name_entry.add_css_class("error")
+            self.slug_row.set_subtitle("Name cannot be empty")
+            self.save_btn.set_sensitive(False)
+            return False
+
+        candidate_slug = Flow.make_slug(raw_name)
+        conflict = any(
+            f.slug == candidate_slug and f.id != self.flow.id
+            for f in load_flows()
+        )
+        if conflict:
+            self.name_entry.add_css_class("error")
+            self.slug_row.set_subtitle(f"flow {candidate_slug}  —  already in use!")
+            self.save_btn.set_sensitive(False)
+            return False
+
+        self.name_entry.remove_css_class("error")
+        self.slug_row.set_subtitle(f"flow {candidate_slug}")
+        self.save_btn.set_sensitive(True)
+        return True
+
+    def _on_name_changed(self, entry):
+        name = entry.get_text().strip() or "New Flow"
+        self.set_title(name)
+        self._validate_name()
 
 class MainWindow(Adw.ApplicationWindow):
     """A GNOME Flow főablaka."""
@@ -374,7 +406,9 @@ class MainWindow(Adw.ApplicationWindow):
         return False
 
     def _on_create_flow(self, _):
-        new_flow = Flow(name="New Flow")
+        existing = load_flows()
+        unique_name = Flow.make_unique_name("New Flow", existing)
+        new_flow = Flow(name=unique_name, slug=Flow.make_slug(unique_name))
         self._open_editor(new_flow, is_new=True)
 
     def _open_editor(self, flow: Flow, is_new: bool):
