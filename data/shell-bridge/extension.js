@@ -20,6 +20,11 @@ const BRIDGE_IFACE = `
         <arg type="s" name="wm_class"/>
         <arg type="s" name="title"/>
     </signal>
+    <signal name="MonitorsChanged">
+      <arg type="i" name="total_count"/>
+      <arg type="i" name="external_count"/>
+      <arg type="as" name="external_names"/>
+    </signal>
   </interface>
 </node>
 `;
@@ -74,6 +79,22 @@ export default class GnomeFlowBridgeExtension extends Extension {
         // 2. D-Bus metódusok regisztrálása (ablakkezeléshez)
         this._dbusImpl = Gio.DBusExportedObject.wrapJSObject(BRIDGE_IFACE, this);
         this._dbusImpl.export(Gio.DBus.session, '/org/gnome/Flow/ShellBridge');
+
+        // 3. Külső monitorok figyelése
+        this._monitorManager = global.backend.get_monitor_manager();
+        this._lastMonitorSig = '';
+        this._monitorDebounceId = 0;
+
+        this._monitorsChangedId = this._monitorManager.connect('monitors-changed', () => {
+            if (this._monitorDebounceId) {
+                GLib.source_remove(this._monitorDebounceId);
+            }
+            this._monitorDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 400, () => {
+                this._monitorDebounceId = 0;
+                this._emitMonitorsChanged();
+                return GLib.SOURCE_REMOVE;
+            });
+        });
     }
 
     disable() {
@@ -89,8 +110,18 @@ export default class GnomeFlowBridgeExtension extends Extension {
             global.display.disconnect(this._focusSignalId);
             this._focusSignalId = 0;
         }
+        if (this._monitorDebounceId) {
+            GLib.source_remove(this._monitorDebounceId);
+            this._monitorDebounceId = 0;
+        }
+        if (this._monitorManager && this._monitorsChangedId) {
+            this._monitorManager.disconnect(this._monitorsChangedId);
+            this._monitorsChangedId = 0;
+        }
+        this._monitorManager = null;
         this._selection = null;
         this._clipboard = null;
+        
     }
 
     ManageWindow(appFilter, action) {
@@ -238,5 +269,34 @@ export default class GnomeFlowBridgeExtension extends Extension {
                 return win;
         }
         return null;
+    }
+
+    _emitMonitorsChanged() {
+        const totalCount = global.display.get_n_monitors();
+        const monitors = this._monitorManager.get_monitors();
+        const externalNames = [];
+
+        for (const mon of monitors) {
+            if (mon.is_builtin())
+                continue;
+            const vendor = mon.get_vendor() || '';
+            const product = mon.get_product() || '';
+            const connector = mon.get_connector() || '';
+            const label = [vendor, product].filter(Boolean).join(' ').trim() || connector || 'External';
+            externalNames.push(`${label} (${connector})`);
+        }
+
+        const sig = `${totalCount}|${externalNames.join(',')}`;
+        if (sig === this._lastMonitorSig)
+            return;
+        this._lastMonitorSig = sig;
+
+        Gio.DBus.session.emit_signal(
+            null,
+            '/org/gnome/Flow/ShellBridge',
+            'org.gnome.Flow.ShellBridge',
+            'MonitorsChanged',
+            new GLib.Variant('(iias)', [totalCount, externalNames.length, externalNames])
+        );
     }
 }
