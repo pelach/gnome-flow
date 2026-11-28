@@ -48,6 +48,91 @@ def _get_installed_process_options() -> list[tuple[str, str]]:
         items.append((proc_name, f"{title} ({proc_name})"))
     return items
 
+class ShortcutCaptureDialog(Adw.Window):
+    """GNOME Beállítások stílusú gyorsbillentyű-rögzítő ablak."""
+
+    MODIFIER_KEYS = {
+        Gdk.KEY_Control_L, Gdk.KEY_Control_R,
+        Gdk.KEY_Alt_L, Gdk.KEY_Alt_R,
+        Gdk.KEY_Super_L, Gdk.KEY_Super_R,
+        Gdk.KEY_Shift_L, Gdk.KEY_Shift_R,
+        Gdk.KEY_Meta_L, Gdk.KEY_Meta_R,
+        Gdk.KEY_Hyper_L, Gdk.KEY_Hyper_R,
+        Gdk.KEY_ISO_Level3_Shift,
+    }
+
+    def __init__(self, parent: Gtk.Window, on_captured):
+        super().__init__(
+            title="Set Shortcut",
+            modal=True,
+            transient_for=parent,
+            default_width=380,
+            default_height=220,
+            resizable=False,
+        )
+        self.on_captured = on_captured
+
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=14,
+            margin_top=24,
+            margin_bottom=24,
+            margin_start=24,
+            margin_end=24,
+            valign=Gtk.Align.CENTER,
+        )
+
+        title_lbl = Gtk.Label(label="Enter the new shortcut")
+        title_lbl.add_css_class("title-3")
+        box.append(title_lbl)
+
+        icon = Gtk.Image.new_from_icon_name("input-keyboard-symbolic")
+        icon.set_pixel_size(64)
+        icon.add_css_class("dim-label")
+        box.append(icon)
+
+        hint_lbl = Gtk.Label(
+            label="Press Esc to cancel or Backspace to clear",
+            wrap=True,
+            justify=Gtk.Justification.CENTER,
+        )
+        hint_lbl.add_css_class("dim-label")
+        box.append(hint_lbl)
+
+        toolbar.set_content(box)
+        self.set_content(toolbar)
+
+        key_ctrl = Gtk.EventControllerKey()
+        key_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        key_ctrl.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(key_ctrl)
+
+    def _on_key_pressed(self, _ctrl, keyval, _keycode, state):
+        # Csak módosító lenyomásakor még várunk a fő billentyűre
+        if keyval in self.MODIFIER_KEYS:
+            return True
+
+        clean_state = state & Gtk.accelerator_get_default_mod_mask()
+
+        # Esc (módosító nélkül) -> megszakítás
+        if keyval == Gdk.KEY_Escape and not clean_state:
+            self.close()
+            return True
+
+        # BackSpace (módosító nélkül) -> törlés
+        if keyval == Gdk.KEY_BackSpace and not clean_state:
+            self.on_captured("")
+            self.close()
+            return True
+
+        accel = Gtk.accelerator_name(keyval, clean_state)
+        if accel:
+            self.on_captured(accel)
+            self.close()
+        return True
 
 class BlockPickerDialog(Adw.Window):
     """Kétpaneles választóablak: bal oldalon kategóriák, jobb oldalon a plugin űrlapok."""
@@ -244,37 +329,34 @@ class BlockPickerDialog(Adw.Window):
                 readers[key] = lambda r=entry: r.get_text().strip()
 
             elif ftype == "shortcut_capture":
-                ctrl_r = Adw.SwitchRow(title="Control (Ctrl)", active="<Control>" in str(current_val or ""))
-                alt_r = Adw.SwitchRow(title="Alt", active="<Alt>" in str(current_val or ""))
-                sup_r = Adw.SwitchRow(title="Super (Windows / Meta)", active="<Super>" in str(current_val or ""))
-                shf_r = Adw.SwitchRow(title="Shift", active="<Shift>" in str(current_val or ""))
-                for r in (ctrl_r, alt_r, sup_r, shf_r):
-                    group.add(r)
+                state_holder = {"accel": str(current_val or "")}
 
-                key_e = Adw.EntryRow(title="Key Name (e.g. F1, F12, k, Return)")
-                key_e.set_text((str(current_val or "F1").split(">")[-1]) or "F1")
-                group.add(key_e)
+                row = Adw.ActionRow(
+                    title=ftitle,
+                    subtitle="Click to record a key combination",
+                )
+                row.set_activatable(True)
 
-                cap_btn = Gtk.Button(label="Press Key to Capture...", margin_top=8)
-                kctrl = Gtk.EventControllerKey()
-                def _on_cap(_c, kval, _kc, st, ke=key_e, cr=ctrl_r, ar=alt_r, sr=sup_r, shr=shf_r, btn=cap_btn):
-                    kname = Gdk.keyval_name(kval)
-                    if kname and kname not in ("Control_L", "Control_R", "Alt_L", "Alt_R", "Super_L", "Super_R", "Shift_L", "Shift_R"):
-                        ke.set_text(kname)
-                        cr.set_active(bool(st & Gdk.ModifierType.CONTROL_MASK))
-                        ar.set_active(bool(st & Gdk.ModifierType.ALT_MASK))
-                        sr.set_active(bool(st & Gdk.ModifierType.SUPER_MASK))
-                        shr.set_active(bool(st & Gdk.ModifierType.SHIFT_MASK))
-                        btn.set_label(f"Captured: {kname}")
-                    return True
-                kctrl.connect("key-pressed", _on_cap)
-                cap_btn.add_controller(kctrl)
-                group.add(cap_btn)
+                shortcut_label = Gtk.ShortcutLabel(
+                    accelerator=state_holder["accel"],
+                    disabled_text="Set Shortcut...",
+                    valign=Gtk.Align.CENTER,
+                )
+                row.add_suffix(shortcut_label)
+                row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
 
-                def _read_accel(cr=ctrl_r, ar=alt_r, sr=sup_r, shr=shf_r, ke=key_e):
-                    mods = ("<Control>" if cr.get_active() else "") + ("<Alt>" if ar.get_active() else "") + ("<Super>" if sr.get_active() else "") + ("<Shift>" if shr.get_active() else "")
-                    return f"{mods}{ke.get_text().strip() or 'F1'}"
-                readers[key] = _read_accel
+                def _apply_accel(new_accel: str):
+                    state_holder["accel"] = new_accel
+                    shortcut_label.set_accelerator(new_accel)
+
+                def _open_capture(_row):
+                    dlg = ShortcutCaptureDialog(self, on_captured=_apply_accel)
+                    dlg.present()
+
+                row.connect("activated", _open_capture)
+                group.add(row)
+
+                readers[key] = lambda: state_holder["accel"]
 
             elif ftype == "schedule_picker":
                 init_time = ep.get("time", "07:00") if ep else "07:00"
